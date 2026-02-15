@@ -1,0 +1,5 @@
+[project]
+name = "CAT - 3 Catalog of Astronomical Things"
+
+[tool.pyside6-project]
+files = ["CAT3_Mainwindow.ui", "db.py", "mainwindow.py", "obj_Details.ui", "objectView.py", "objectView.ui", "showcase.py", "showcase.ui"]
