@@ -1,9 +1,11 @@
 """
 SIMBAD Client - Astronomical Data Query via TAP Service
 Strasbourg Astronomical Data Center (CDS)
+Uses urllib (standard library) instead of requests
 """
-import requests
+import urllib.request
 import urllib.parse
+import json
 from typing import Optional, Dict, List, Any
 from dataclasses import dataclass
 
@@ -66,6 +68,9 @@ def search_by_name(query: str, limit: int = 20) -> List[SimbadObject]:
     Search SIMBAD by object name/identifier
     Returns list of matching objects
     """
+    # Escape single quotes to prevent SQL injection
+    safe_query = query.replace("'", "''")
+    
     adql = f"""
     SELECT DISTINCT TOP {limit}
         b.main_id,
@@ -75,15 +80,16 @@ def search_by_name(query: str, limit: int = 20) -> List[SimbadObject]:
         b.galdim_majaxis as size_major,
         b.galdim_minaxis as size_minor,
         b.vartype as morphology,
-        i.id as alt_name,
         f_flux.flux as mag_v,
         f_b.flux as mag_b
     FROM basic b
-    LEFT JOIN ident i ON b.oid = i.oidref
     LEFT JOIN flux f_flux ON b.oid = f_flux.oidref AND f_flux.filter = 'V'
     LEFT JOIN flux f_b ON b.oid = f_b.oidref AND f_b.filter = 'B'
-    WHERE b.main_id LIKE '%{query}%'
-       OR i.id LIKE '%{query}%'
+    WHERE b.main_id LIKE '%{safe_query}%'
+       OR EXISTS (
+           SELECT 1 FROM ident i 
+           WHERE i.oidref = b.oid AND i.id LIKE '%{safe_query}%'
+       )
     ORDER BY b.main_id
     """
     
@@ -94,6 +100,8 @@ def get_object_by_id(object_id: str) -> Optional[SimbadObject]:
     """
     Get specific object by its main ID (exact match)
     """
+    safe_id = object_id.replace("'", "''")
+    
     adql = f"""
     SELECT TOP 1
         b.main_id,
@@ -108,7 +116,7 @@ def get_object_by_id(object_id: str) -> Optional[SimbadObject]:
     FROM basic b
     LEFT JOIN flux f_flux ON b.oid = f_flux.oidref AND f_flux.filter = 'V'
     LEFT JOIN flux f_b ON b.oid = f_b.oidref AND f_b.filter = 'B'
-    WHERE b.main_id = '{object_id}'
+    WHERE b.main_id = '{safe_id}'
     """
     
     results = _execute_query(adql)
@@ -116,7 +124,7 @@ def get_object_by_id(object_id: str) -> Optional[SimbadObject]:
 
 
 def _execute_query(adql: str) -> List[SimbadObject]:
-    """Execute TAP query and parse results"""
+    """Execute TAP query and parse results using urllib"""
     params = {
         'request': 'doQuery',
         'lang': 'adql',
@@ -125,24 +133,28 @@ def _execute_query(adql: str) -> List[SimbadObject]:
     }
     
     try:
-        response = requests.post(
+        # Encode and send POST request
+        data = urllib.parse.urlencode(params).encode('utf-8')
+        req = urllib.request.Request(
             SIMBAD_TAP_URL,
-            data=params,
-            timeout=10
+            data=data,
+            headers={'Content-Type': 'application/x-www-form-urlencoded'},
+            method='POST'
         )
-        response.raise_for_status()
-        data = response.json()
+        
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
         
         return _parse_results(data)
         
-    except requests.exceptions.Timeout:
-        print("SIMBAD query timeout")
+    except urllib.error.URLError as e:
+        print(f"SIMBAD connection error: {e}")
         return []
-    except requests.exceptions.RequestException as e:
-        print(f"SIMBAD query error: {e}")
+    except json.JSONDecodeError as e:
+        print(f"SIMBAD JSON parse error: {e}")
         return []
     except Exception as e:
-        print(f"SIMBAD parse error: {e}")
+        print(f"SIMBAD query error: {e}")
         return []
 
 
@@ -150,16 +162,13 @@ def _parse_results(data: Dict) -> List[SimbadObject]:
     """Parse SIMBAD TAP JSON response"""
     results = []
     
-    # JSON response format from TAP
     if 'data' not in data:
         return results
     
-    # Column indices (may vary, need to check metadata)
     columns = {col['name']: i for i, col in enumerate(data.get('metadata', []))}
     
     for row in data['data']:
         try:
-            # Extract RA/Dec from degrees
             ra_deg = row[columns.get('ra', 1)] if 'ra' in columns else None
             dec_deg = row[columns.get('dec', 2)] if 'dec' in columns else None
             
@@ -169,17 +178,17 @@ def _parse_results(data: Dict) -> List[SimbadObject]:
             ra_h, ra_m, ra_s = _ra_to_hms(float(ra_deg))
             dec_d, dec_m, dec_s = _dec_to_dms(float(dec_deg))
             
-            # Object type mapping
             obj_type = row[columns.get('object_type', 3)] if 'object_type' in columns else "unknown"
             obj_type = _map_object_type(obj_type)
             
-            # Size calculation
             size_major = row[columns.get('size_major', 4)] if 'size_major' in columns else None
-            size_minor = row[columns.get('size_minor', 5)] if 'size_minor' in columns else None
             if size_major:
-                size_major_arcmin = float(size_major) * 60  # degrees to arcmin
+                size_major_arcmin = float(size_major) * 60
             else:
                 size_major_arcmin = None
+            
+            mag_v_val = row[columns.get('mag_v', 7)] if 'mag_v' in columns else None
+            mag_b_val = row[columns.get('mag_b', 8)] if 'mag_b' in columns else None
             
             obj = SimbadObject(
                 main_id=row[columns.get('main_id', 0)] if 'main_id' in columns else "",
@@ -191,8 +200,8 @@ def _parse_results(data: Dict) -> List[SimbadObject]:
                 dec_degrees=dec_d,
                 dec_minutes=dec_m,
                 dec_seconds=dec_s,
-                magnitude_v=float(row[columns.get('mag_v', 7)]) if 'mag_v' in columns and row[columns.get('mag_v', 7)] else None,
-                magnitude_b=float(row[columns.get('mag_b', 8)]) if 'mag_b' in columns and row[columns.get('mag_b', 8)] else None,
+                magnitude_v=float(mag_v_val) if mag_v_val else None,
+                magnitude_b=float(mag_b_val) if mag_b_val else None,
                 size_arcmin=size_major_arcmin,
                 morphology=row[columns.get('morphology', 6)] if 'morphology' in columns else None
             )
@@ -233,7 +242,6 @@ def _map_object_type(simbad_type: str) -> str:
         'Sun': 'sun',
     }
     
-    # Check for exact match or partial match
     for simbad_key, cat3_type in type_mapping.items():
         if simbad_key in simbad_type or simbad_type == simbad_key:
             return cat3_type
@@ -244,11 +252,12 @@ def _map_object_type(simbad_type: str) -> str:
 def test_connection() -> bool:
     """Test if SIMBAD is reachable"""
     try:
-        response = requests.get(
+        req = urllib.request.Request(
             "https://simbad.cds.unistra.fr/simbad/sim-tap",
-            timeout=5
+            method='HEAD'
         )
-        return response.status_code == 200
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return response.status == 200
     except:
         return False
 
