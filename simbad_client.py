@@ -202,8 +202,22 @@ def get_object_details(main_id: str) -> Dict:
     safe_id = main_id.replace("'", "''")
     details = {'magnitude_v': None, 'size_arcmin': None, 'constellation': None, 'otype': None}
     
-    # Note: Flux query with JOIN doesn't work (HTTP 400), skipping magnitude for now
-    # TODO: Implement two-step query if needed (get oid, then flux)
+    # Step 1: Get OID from basic table
+    adql = f"SELECT oid FROM basic WHERE main_id='{safe_id}'"
+    rows = _execute_query(adql)
+    if not rows or not rows[0].get('oid'):
+        return details
+    
+    oid = rows[0]['oid']
+    
+    # Step 2: Get V magnitude using OID (no JOIN needed)
+    adql = f"SELECT flux FROM flux WHERE oidref={oid} AND filter='V' LIMIT 1"
+    rows = _execute_query(adql)
+    if rows and rows[0].get('flux'):
+        try:
+            details['magnitude_v'] = float(rows[0]['flux'])
+        except:
+            pass
     
     # Get size (major axis in degrees, convert to arcmin)
     rows = _execute_query(adql)
