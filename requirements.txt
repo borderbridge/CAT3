@@ -1,4 +1,5 @@
 PySide6>=6.5.0
 Pillow>=10.0.0  # Für Bild-Thumbnails
-astropy>=5.0    # Für astronomische Berechnungen (optional, für Koordinaten)
+astropy>=5.0    # Für astronomische Berechnungen
+astroquery>=0.4.8  # Für SIMBAD queries
 skyfield>=1.46  # Für Planetenpositionen (optional)
