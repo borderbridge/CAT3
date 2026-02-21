@@ -95,8 +95,98 @@ def _execute_tap_query(adql: str) -> List[Dict]:
         return []
 
 
+def _map_object_type(otype: str) -> str:
+    """Map SIMBAD object type to CAT3"""
+    if not otype:
+        return "unknown"
+    
+    st = str(otype).strip()
+    type_map = {
+        'G': 'galaxy', 'Galaxy': 'galaxy', 'AGN': 'galaxy',
+        'Seyfert': 'galaxy', 'Seyfert_1': 'galaxy', 'Seyfert_2': 'galaxy',
+        'LINER': 'galaxy', 'QSO': 'galaxy',
+        'PN': 'planetary_nebula', 'PlanetaryNeb': 'planetary_nebula',
+        'SNR': 'supernova_remnant',
+        'HII': 'nebula', 'Neb': 'nebula',
+        'GlC': 'globular_cluster', 'GlobularCl': 'globular_cluster',
+        'OpC': 'open_cluster', 'OpenCl': 'open_cluster', 'Cl': 'open_cluster',
+        '*': 'star', 'Star': 'star', '**': 'double_star',
+        'Planet': 'planet', 'Comet': 'comet', 'Asteroid': 'asteroid',
+        'Moon': 'moon', 'Sun': 'sun',
+    }
+    return type_map.get(st, "unknown")
+
+
+def _normalize_query(query: str) -> str:
+    """Convert user input to SIMBAD format"""
+    q = query.strip().upper()
+    
+    # Common names -> SIMBAD main_id
+    name_map = {
+        'ANDROMEDA': 'M  31',
+        'ANDROMEDAGALAXY': 'M  31',
+        'ORIONNEBEL': 'M  42',
+        'ORIONNEBULA': 'M  42',
+        'M42': 'M  42',
+        'PLEJADEN': 'M  45',
+        'PLEIADES': 'M  45',
+        'KREBSNEBEL': 'M  1',
+        'CRABNEBULA': 'M  1',
+        'LAGUNENNEBEL': 'M  8',
+        'LAGOONNEBULA': 'M  8',
+        'ADLERNEBEL': 'M  16',
+        'EAGLENEBULA': 'M  16',
+        'RINGNEBEL': 'M  57',
+        'RINGNEBULA': 'M  57',
+        'HANTELNEBEL': 'M  27',
+        'DUMBBELLNEBULA': 'M  27',
+        'NORDAMERIKANEBEL': 'NGC 7000',
+        'NORTHAMERICANEBULA': 'NGC 7000',
+        'M31': 'M  31',
+        'M1': 'M  1',
+        'M2': 'M  2',
+        'M3': 'M  3',
+        'M4': 'M  4',
+        'M5': 'M  5',
+        'M6': 'M  6',
+        'M7': 'M  7',
+        'M8': 'M  8',
+        'M9': 'M  9',
+        'M10': 'M  10',
+        'M11': 'M  11',
+        'M12': 'M  12',
+        'M13': 'M  13',
+        'M14': 'M  14',
+        'M15': 'M  15',
+        'M31': 'M  31',
+        'M42': 'M  42',
+        'M45': 'M  45',
+        'M51': 'M  51',
+        'M57': 'M  57',
+    }
+    
+    q_clean = q.replace(' ', '').replace('-', '').replace('_', '')
+    if q_clean in name_map:
+        return name_map[q_clean]
+    if q in name_map:
+        return name_map[q]
+    
+    # Messier: M31 -> M  31
+    if q.startswith('M') and len(q) > 1 and q[1:].strip().isdigit():
+        return f"M  {q[1:].strip()}"
+    
+    # NGC/IC: NGC7000 -> NGC 7000
+    for prefix in ['NGC', 'IC', 'UGC']:
+        if q.startswith(prefix) and len(q) > len(prefix):
+            num = q[len(prefix):].strip()
+            if num.isdigit():
+                return f"{prefix} {num}"
+    
+    return query
+
+
 def _get_astroquery_details(main_id: str) -> Dict:
-    """Get details (magnitude, type, size) via astroquery. Single query, suppress warnings."""
+    """Get details (magnitude, type, size) via astroquery"""
     if not ASTROQUERY_AVAILABLE:
         return {}
     
@@ -128,7 +218,6 @@ def _get_astroquery_details(main_id: str) -> Dict:
                 
                 if 'galdim_majaxis' in row.colnames and row['galdim_majaxis']:
                     try:
-                        # Already in arcmin from SIMBAD
                         details['size_arcmin'] = float(row['galdim_majaxis'])
                     except:
                         pass
@@ -139,35 +228,13 @@ def _get_astroquery_details(main_id: str) -> Dict:
     return details
 
 
-def _map_object_type(otype: str) -> str:
-    """Map SIMBAD object type to CAT3"""
-    if not otype:
-        return "unknown"
-    
-    st = str(otype).strip()
-    type_map = {
-        'G': 'galaxy', 'Galaxy': 'galaxy', 'AGN': 'galaxy',
-        'Seyfert': 'galaxy', 'Seyfert_1': 'galaxy', 'Seyfert_2': 'galaxy',
-        'LINER': 'galaxy', 'QSO': 'galaxy',
-        'PN': 'planetary_nebula', 'PlanetaryNeb': 'planetary_nebula',
-        'SNR': 'supernova_remnant',
-        'HII': 'nebula', 'Neb': 'nebula',
-        'GlC': 'globular_cluster', 'GlobularCl': 'globular_cluster',
-        'OpC': 'open_cluster', 'OpenCl': 'open_cluster', 'Cl': 'open_cluster',
-        '*': 'star', 'Star': 'star', '**': 'double_star',
-        'Planet': 'planet', 'Comet': 'comet', 'Asteroid': 'asteroid',
-        'Moon': 'moon', 'Sun': 'sun',
-    }
-    return type_map.get(st, "unknown")
-
-
 def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
     """Search SIMBAD - prioritize exact matches, avoid substring pollution"""
     safe_query = query.replace("'", "''")
     results = []
     found_ids = set()
     
-    # Step 1: Try normalized exact match FIRST (M31 -> M  31)
+    # Step 0: Normalized exact match FIRST (M31 -> M  31)
     normalized = _normalize_query(query)
     if normalized != query:
         safe_norm = normalized.replace("'", "''")
@@ -187,7 +254,7 @@ def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
                     dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
                 ))
     
-    # Step 2: Exact match
+    # Step 1: Exact match on main_id
     adql = f"SELECT TOP {limit} main_id, ra, dec FROM basic WHERE main_id = '{safe_query}'"
     rows = _execute_tap_query(adql)
     for row in rows:
@@ -204,7 +271,7 @@ def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
                 dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
             ))
     
-    # Step 3: Start of main_id OR space-separated word
+    # Step 2: Start-of-word match (not substring)
     adql = f"""SELECT TOP {limit} main_id, ra, dec FROM basic 
                WHERE main_id LIKE '{safe_query}%' 
                OR main_id LIKE '% {safe_query}' 
@@ -224,7 +291,7 @@ def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
                 dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
             ))
     
-    # Step 4: Alternative identifiers (exact or prefix)
+    # Step 3: Alternative identifiers
     if len(results) < 5:
         adql = f"""SELECT TOP {limit} b.main_id, b.ra, b.dec 
                    FROM basic b JOIN ident i ON b.oid = i.oidref 
@@ -265,8 +332,7 @@ if __name__ == "__main__":
     if test_connection():
         print(f"✓ Connected (astroquery: {ASTROQUERY_AVAILABLE})")
         print("\nSearching M31:")
-        for r in search_by_name("M31", limit=3):
+        for r in search_by_name("M31", limit=5):
             print(f"  {r.main_id}: {r.ra_display} / {r.dec_display}")
-            # Note: magnitude/type only fetched on selection
     else:
         print("✗ Connection failed")
