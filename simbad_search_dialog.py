@@ -165,6 +165,19 @@ class SimbadSearchDialog(QDialog):
         obj = item.data(Qt.UserRole)
         
         if obj:
+            # Load additional details from SIMBAD
+            try:
+                from simbad_client import get_object_details
+                details = get_object_details(obj.main_id)
+                obj.magnitude_v = details.get('magnitude_v')
+                obj.size_arcmin = details.get('size_arcmin')
+                obj.constellation = details.get('constellation')
+                if details.get('otype'):
+                    from simbad_client import _map_object_type
+                    obj.object_type = _map_object_type(details['otype'])
+            except:
+                pass  # Details are optional
+            
             self.selected_object = obj
             self.object_selected.emit(obj)
             self.accept()

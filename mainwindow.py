@@ -796,16 +796,25 @@ class ObjectEditorWidget(QWidget):
             edit_dec.setText(f"{obj.dec_degrees} {obj.dec_minutes} {obj.dec_seconds:.2f}")
 
         # Set magnitude
-        if obj.magnitude_v:
+        mag_v = getattr(obj, 'magnitude_v', None)
+        if mag_v:
             edit_magnitude = self.findChild(QLineEdit, "edit_magnitude")
             if edit_magnitude:
-                edit_magnitude.setText(f"{obj.magnitude_v:.1f}")
+                edit_magnitude.setText(f"{mag_v:.1f}")
 
-        # Set size
-        if obj.size_arcmin:
+        # Set size (arcmin)
+        size = getattr(obj, 'size_arcmin', None)
+        if size:
             edit_size = self.findChild(QLineEdit, "edit_size")
             if edit_size:
-                edit_size.setText(f"{obj.size_arcmin:.1f}")
+                edit_size.setText(f"{size:.1f}")
+        
+        # Set constellation
+        constellation = getattr(obj, 'constellation', None)
+        if constellation:
+            edit_constellation = self.findChild(QLineEdit, "edit_constellation")
+            if edit_constellation:
+                edit_constellation.setText(constellation)
 
         # Set object type
         edit_type = self.findChild(QComboBox, "edit_type")
