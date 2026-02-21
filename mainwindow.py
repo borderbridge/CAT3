@@ -922,10 +922,11 @@ class MainWindow(QMainWindow):
         
     def _init_database(self):
         stats = db.get_statistics()
-        if stats['total_objects'] == 0:
-            from catalog_imports import import_all_catalogs
-            import_all_catalogs()
-            stats = db.get_statistics()
+        # Auto-import disabled - user wants clean database for own observations only
+        # if stats['total_objects'] == 0:
+        #     from catalog_imports import import_all_catalogs
+        #     import_all_catalogs()
+        #     stats = db.get_statistics()
         print(f"Database ready: {stats['total_objects']} objects")
         
     def _show_statistics(self):
