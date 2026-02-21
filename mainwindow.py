@@ -16,6 +16,8 @@ from PySide6.QtCore import Qt, Signal, QDate, QTime, QSize
 from PySide6.QtGui import QPixmap, QFont, QIcon, QPainter, QColor, QBrush
 
 from ui_CAT3_Mainwindow import Ui_MainWindow
+from simbad_search_dialog import SimbadButton
+from simbad_client import SimbadObject
 import db
 
 
@@ -309,6 +311,12 @@ class ObjectEditorWidget(QWidget):
             info_grid.addWidget(edit, row, col + 1)
         
         right_container.addLayout(info_grid)
+        
+        # SIMBAD Search Button (for filling fields from SIMBAD)
+        self.btn_simbad = SimbadButton()
+        self.btn_simbad.object_selected.connect(self._fill_from_simbad)
+        self.btn_simbad.setVisible(False)  # Only visible in edit/create mode
+        right_container.addWidget(self.btn_simbad)
         
         dir_layout = QHBoxLayout()
         dir_label = QLabel("📁 Daten:")
@@ -609,6 +617,10 @@ class ObjectEditorWidget(QWidget):
         self.btn_open_dir.setVisible(mode == "view")
         self.edit_directory.setVisible(mode in ("edit", "create"))
         self.btn_browse_dir.setVisible(mode in ("edit", "create"))
+        
+        # SIMBAD button only visible in edit/create mode
+        if hasattr(self, 'btn_simbad'):
+            self.btn_simbad.setVisible(mode in ("edit", "create"))
                 
     def _toggle_edit_mode(self):
         if self.mode == "view":
@@ -762,7 +774,57 @@ class ObjectEditorWidget(QWidget):
                 self._go_back()
             except Exception as e:
                 QMessageBox.critical(self, "Fehler", f"Fehler beim Löschen: {e}")
-                
+
+    def _fill_from_simbad(self, obj: SimbadObject):
+        """Fill form fields from SIMBAD object data"""
+        # Set name if empty
+        if not self.te_name.toPlainText().strip():
+            self.te_name.setPlainText(obj.name)
+
+        # Set catalog ID
+        edit_catalog = self.findChild(QLineEdit, "edit_catalog")
+        if edit_catalog:
+            edit_catalog.setText(obj.main_id)
+
+        # Set coordinates
+        edit_ra = self.findChild(QLineEdit, "edit_ra")
+        if edit_ra:
+            edit_ra.setText(f"{obj.ra_hours} {obj.ra_minutes} {obj.ra_seconds:.2f}")
+
+        edit_dec = self.findChild(QLineEdit, "edit_dec")
+        if edit_dec:
+            edit_dec.setText(f"{obj.dec_degrees} {obj.dec_minutes} {obj.dec_seconds:.2f}")
+
+        # Set magnitude
+        if obj.magnitude_v:
+            edit_magnitude = self.findChild(QLineEdit, "edit_magnitude")
+            if edit_magnitude:
+                edit_magnitude.setText(f"{obj.magnitude_v:.1f}")
+
+        # Set size
+        if obj.size_arcmin:
+            edit_size = self.findChild(QLineEdit, "edit_size")
+            if edit_size:
+                edit_size.setText(f"{obj.size_arcmin:.1f}")
+
+        # Set object type
+        edit_type = self.findChild(QComboBox, "edit_type")
+        if edit_type:
+            display_type = TYPE_DISPLAY.get(obj.object_type, "")
+            idx = edit_type.findText(display_type)
+            if idx >= 0:
+                edit_type.setCurrentIndex(idx)
+
+        # Set description from morphology if available
+        if obj.morphology and not self.te_description.toPlainText().strip():
+            self.te_description.setPlainText(f"Typ: {obj.morphology}")
+
+        # Show status
+        if self.parent():
+            main_win = self.window()
+            if hasattr(main_win, 'statusBar'):
+                main_win.statusBar().showMessage(f"✓ Daten aus SIMBAD übernommen: {obj.main_id}", 3000)
+
     def _go_back(self):
         self.go_back.emit()
             
