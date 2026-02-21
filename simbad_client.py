@@ -116,19 +116,20 @@ def _get_astroquery_details(main_id: str) -> Dict:
             if table is not None and len(table) > 0:
                 row = table[0]
                 
-                if 'FLUX_V' in row.colnames and row['FLUX_V']:
+                if 'V' in row.colnames and row['V']:
                     try:
-                        details['magnitude_v'] = float(row['FLUX_V'])
+                        details['magnitude_v'] = float(row['V'])
                     except:
                         pass
                 
-                if 'OTYPE' in row.colnames and row['OTYPE']:
-                    details['object_type'] = _map_object_type(str(row['OTYPE']))
-                    details['morphology'] = str(row['OTYPE'])
+                if 'otype' in row.colnames and row['otype']:
+                    details['object_type'] = _map_object_type(str(row['otype']))
+                    details['morphology'] = str(row['otype'])
                 
-                if 'GALDIM_MAJAXIS' in row.colnames and row['GALDIM_MAJAXIS']:
+                if 'galdim_majaxis' in row.colnames and row['galdim_majaxis']:
                     try:
-                        details['size_arcmin'] = float(row['GALDIM_MAJAXIS']) * 60
+                        # Already in arcmin from SIMBAD
+                        details['size_arcmin'] = float(row['galdim_majaxis'])
                     except:
                         pass
                     
