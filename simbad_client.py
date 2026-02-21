@@ -162,15 +162,34 @@ def _map_object_type(otype: str) -> str:
 
 
 def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
-    """Search SIMBAD by object name using TAP (flexible LIKE queries)"""
+    """Search SIMBAD - prioritize exact matches, avoid substring pollution"""
     safe_query = query.replace("'", "''")
     results = []
     found_ids = set()
     
-    # Search 1: LIKE on main_id
-    adql = f"SELECT TOP {limit} main_id, ra, dec FROM basic WHERE main_id LIKE '%{safe_query}%'"
-    rows = _execute_tap_query(adql)
+    # Step 1: Try normalized exact match FIRST (M31 -> M  31)
+    normalized = _normalize_query(query)
+    if normalized != query:
+        safe_norm = normalized.replace("'", "''")
+        adql = f"SELECT TOP 1 main_id, ra, dec FROM basic WHERE main_id = '{safe_norm}'"
+        rows = _execute_tap_query(adql)
+        for row in rows:
+            mid = row.get('main_id')
+            ra = row.get('ra')
+            dec = row.get('dec')
+            if mid and ra is not None and dec is not None:
+                found_ids.add(mid)
+                ra_h, ra_m, ra_s = _ra_to_hms(ra)
+                dec_d, dec_m, dec_s = _dec_to_dms(dec)
+                results.append(SimbadObject(
+                    main_id=mid, name=mid,
+                    ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
+                    dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
+                ))
     
+    # Step 2: Exact match
+    adql = f"SELECT TOP {limit} main_id, ra, dec FROM basic WHERE main_id = '{safe_query}'"
+    rows = _execute_tap_query(adql)
     for row in rows:
         mid = row.get('main_id')
         ra = row.get('ra')
@@ -185,11 +204,31 @@ def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
                 dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
             ))
     
-    # Search 2: Alternative identifiers
+    # Step 3: Start of main_id OR space-separated word
+    adql = f"""SELECT TOP {limit} main_id, ra, dec FROM basic 
+               WHERE main_id LIKE '{safe_query}%' 
+               OR main_id LIKE '% {safe_query}' 
+               OR main_id LIKE '% {safe_query} %'"""
+    rows = _execute_tap_query(adql)
+    for row in rows:
+        mid = row.get('main_id')
+        ra = row.get('ra')
+        dec = row.get('dec')
+        if mid and ra is not None and dec is not None and mid not in found_ids:
+            found_ids.add(mid)
+            ra_h, ra_m, ra_s = _ra_to_hms(ra)
+            dec_d, dec_m, dec_s = _dec_to_dms(dec)
+            results.append(SimbadObject(
+                main_id=mid, name=mid,
+                ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
+                dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
+            ))
+    
+    # Step 4: Alternative identifiers (exact or prefix)
     if len(results) < 5:
         adql = f"""SELECT TOP {limit} b.main_id, b.ra, b.dec 
                    FROM basic b JOIN ident i ON b.oid = i.oidref 
-                   WHERE i.id LIKE '%{safe_query}%'"""
+                   WHERE i.id = '{safe_query}' OR i.id LIKE '{safe_query}%'"""
         rows = _execute_tap_query(adql)
         for row in rows:
             mid = row.get('main_id')
@@ -204,9 +243,6 @@ def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
                     ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
                     dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
                 ))
-    
-    # Note: Details (magnitude, type, size) fetched only when object is SELECTED
-    # This prevents spamming SIMBAD with 15+ queries per search
     
     return results[:limit]
 
