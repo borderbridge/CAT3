@@ -165,6 +165,17 @@ class SimbadSearchDialog(QDialog):
         obj = item.data(Qt.UserRole)
         
         if obj:
+            # Load additional details via astroquery
+            try:
+                from simbad_client import _get_astroquery_details
+                details = _get_astroquery_details(obj.main_id)
+                obj.magnitude_v = details.get('magnitude_v')
+                obj.object_type = details.get('object_type', obj.object_type)
+                obj.size_arcmin = details.get('size_arcmin')
+                obj.morphology = details.get('morphology')
+            except:
+                pass
+            
             self.selected_object = obj
             self.object_selected.emit(obj)
             self.accept()
