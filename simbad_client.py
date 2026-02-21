@@ -87,11 +87,40 @@ def _normalize_query(query: str) -> str:
     """Convert user input to SIMBAD format"""
     q = query.strip().upper()
     
-    # M31 -> M  31 (SIMBAD format)
+    # Common names -> SIMBAD main_id
+    name_map = {
+        'ANDROMEDA': 'M  31',
+        'ANDROMEDAGALAXY': 'M  31',
+        'ORIONNEBEL': 'M  42',
+        'ORIONNEBULA': 'M  42',
+        'M42': 'M  42',
+        'PLEJADEN': 'M  45',
+        'PLEIADES': 'M  45',
+        'KREBSNEBEL': 'M  1',
+        'CRABNEBULA': 'M  1',
+        'LAGUNENNEBEL': 'M  8',
+        'LAGOONNEBULA': 'M  8',
+        'ADLERNEBEL': 'M  16',
+        'EAGLENEBULA': 'M  16',
+        'RINGNEBEL': 'M  57',
+        'RINGNEBULA': 'M  57',
+        'HANTELNEBEL': 'M  27',
+        'DUMBBELLNEBULA': 'M  27',
+        'NORDAMERIKANEBEL': 'NGC 7000',
+        'NORTHAMERICANEBULA': 'NGC 7000',
+    }
+    
+    q_clean = q.replace(' ', '').replace('-', '').replace('_', '')
+    if q_clean in name_map:
+        return name_map[q_clean]
+    if q in name_map:
+        return name_map[q]
+    
+    # Messier: M31 -> M  31
     if q.startswith('M') and len(q) > 1 and q[1:].strip().isdigit():
         return f"M  {q[1:].strip()}"
     
-    # NGC7000 -> NGC 7000
+    # NGC/IC: NGC7000 -> NGC 7000
     for prefix in ['NGC', 'IC', 'UGC']:
         if q.startswith(prefix) and len(q) > len(prefix):
             num = q[len(prefix):].strip()

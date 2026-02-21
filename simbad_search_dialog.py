@@ -71,14 +71,16 @@ class SimbadSearchDialog(QDialog):
         
         # Results table
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(6)
+        self.results_table.setColumnCount(4)
         self.results_table.setHorizontalHeaderLabels([
-            "ID", "Typ", "Rektaszension", "Deklination", "Helligkeit (V)", "Größe ('')"
+            "ID", "Rektaszension", "Deklination", "Helligkeit (V)"
         ])
         self.results_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.results_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.results_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.results_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)  # No editing!
         self.results_table.doubleClicked.connect(self._on_double_click)
         self.results_table.setAlternatingRowColors(True)
         layout.addWidget(self.results_table)
@@ -125,18 +127,21 @@ class SimbadSearchDialog(QDialog):
         self.results_table.setRowCount(len(results))
         
         for i, obj in enumerate(results):
+            # Column 0: ID
             self.results_table.setItem(i, 0, QTableWidgetItem(obj.main_id))
-            self.results_table.setItem(i, 1, QTableWidgetItem(obj.object_type))
-            self.results_table.setItem(i, 2, QTableWidgetItem(obj.ra_display))
-            self.results_table.setItem(i, 3, QTableWidgetItem(obj.dec_display))
             
-            mag_str = f"{obj.magnitude_v:.1f}" if obj.magnitude_v else "-"
-            self.results_table.setItem(i, 4, QTableWidgetItem(mag_str))
+            # Column 1: RA
+            self.results_table.setItem(i, 1, QTableWidgetItem(obj.ra_display))
             
-            size_str = f"{obj.size_arcmin:.1f}" if obj.size_arcmin else "-"
-            self.results_table.setItem(i, 5, QTableWidgetItem(size_str))
+            # Column 2: Dec
+            self.results_table.setItem(i, 2, QTableWidgetItem(obj.dec_display))
             
-            # Store full object in first column
+            # Column 3: Magnitude V
+            mag_val = getattr(obj, 'magnitude_v', None)
+            mag_str = f"{mag_val:.1f}" if mag_val else "-"
+            self.results_table.setItem(i, 3, QTableWidgetItem(mag_str))
+            
+            # Store full object in first column for retrieval
             self.results_table.item(i, 0).setData(Qt.UserRole, obj)
         
         self.status_label.setText(f"{len(results)} Treffer gefunden")
