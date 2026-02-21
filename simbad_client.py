@@ -5,6 +5,7 @@ Hybrid: TAP for search (flexible), astroquery for details (magnitude, type)
 import urllib.request
 import urllib.parse
 import json
+import warnings
 from typing import Optional, List, Dict
 from dataclasses import dataclass
 
@@ -19,7 +20,6 @@ SIMBAD_TAP_URL = "https://simbad.cds.unistra.fr/simbad/sim-tap/sync"
 
 @dataclass
 class SimbadObject:
-    """Represents an astronomical object from SIMBAD"""
     main_id: str
     name: str
     ra_hours: int
@@ -96,40 +96,41 @@ def _execute_tap_query(adql: str) -> List[Dict]:
 
 
 def _get_astroquery_details(main_id: str) -> Dict:
-    """Get details (magnitude, type, size) via astroquery"""
+    """Get details (magnitude, type, size) via astroquery. Single query, suppress warnings."""
     if not ASTROQUERY_AVAILABLE:
         return {}
     
-    details = {'magnitude_v': None, 'object_type': 'unknown', 'size_arcmin': None}
+    details = {'magnitude_v': None, 'object_type': 'unknown', 
+               'size_arcmin': None, 'morphology': None}
     
     try:
-        simbad = Simbad()
-        simbad.ROW_LIMIT = 1
-        simbad.add_votable_fields('V', 'otype', 'galdim_majaxis')
-        
-        table = simbad.query_object(main_id)
-        
-        if table is not None and len(table) > 0:
-            row = table[0]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             
-            # Get V magnitude
-            if 'FLUX_V' in row.colnames and row['FLUX_V']:
-                try:
-                    details['magnitude_v'] = float(row['FLUX_V'])
-                except:
-                    pass
+            simbad = Simbad()
+            simbad.ROW_LIMIT = 1
+            simbad.add_votable_fields('V', 'otype', 'galdim_majaxis')
             
-            # Get type
-            if 'OTYPE' in row.colnames and row['OTYPE']:
-                details['object_type'] = _map_object_type(str(row['OTYPE']))
-                details['morphology'] = str(row['OTYPE'])
+            table = simbad.query_object(main_id)
             
-            # Get size
-            if 'GALDIM_MAJAXIS' in row.colnames and row['GALDIM_MAJAXIS']:
-                try:
-                    details['size_arcmin'] = float(row['GALDIM_MAJAXIS']) * 60
-                except:
-                    pass
+            if table is not None and len(table) > 0:
+                row = table[0]
+                
+                if 'FLUX_V' in row.colnames and row['FLUX_V']:
+                    try:
+                        details['magnitude_v'] = float(row['FLUX_V'])
+                    except:
+                        pass
+                
+                if 'OTYPE' in row.colnames and row['OTYPE']:
+                    details['object_type'] = _map_object_type(str(row['OTYPE']))
+                    details['morphology'] = str(row['OTYPE'])
+                
+                if 'GALDIM_MAJAXIS' in row.colnames and row['GALDIM_MAJAXIS']:
+                    try:
+                        details['size_arcmin'] = float(row['GALDIM_MAJAXIS']) * 60
+                    except:
+                        pass
                     
     except Exception as e:
         pass
@@ -138,12 +139,11 @@ def _get_astroquery_details(main_id: str) -> Dict:
 
 
 def _map_object_type(otype: str) -> str:
-    """Map SIMBAD object type to CAT3 types"""
+    """Map SIMBAD object type to CAT3"""
     if not otype:
         return "unknown"
     
     st = str(otype).strip()
-    
     type_map = {
         'G': 'galaxy', 'Galaxy': 'galaxy', 'AGN': 'galaxy',
         'Seyfert': 'galaxy', 'Seyfert_1': 'galaxy', 'Seyfert_2': 'galaxy',
@@ -152,66 +152,60 @@ def _map_object_type(otype: str) -> str:
         'SNR': 'supernova_remnant',
         'HII': 'nebula', 'Neb': 'nebula',
         'GlC': 'globular_cluster', 'GlobularCl': 'globular_cluster',
-        'OpC': 'open_cluster', 'OpenCl': 'open_cluster', 'Cl*': 'open_cluster',
+        'OpC': 'open_cluster', 'OpenCl': 'open_cluster', 'Cl': 'open_cluster',
         '*': 'star', 'Star': 'star', '**': 'double_star',
         'Planet': 'planet', 'Comet': 'comet', 'Asteroid': 'asteroid',
         'Moon': 'moon', 'Sun': 'sun',
     }
-    
     return type_map.get(st, "unknown")
 
 
 def search_by_name(query: str, limit: int = 15) -> List[SimbadObject]:
-    """Search SIMBAD by object name"""
+    """Search SIMBAD by object name using TAP (flexible LIKE queries)"""
     safe_query = query.replace("'", "''")
     results = []
     found_ids = set()
     
-    # Search 1: Exact match or LIKE on main_id
+    # Search 1: LIKE on main_id
     adql = f"SELECT TOP {limit} main_id, ra, dec FROM basic WHERE main_id LIKE '%{safe_query}%'"
     rows = _execute_tap_query(adql)
     
     for row in rows:
-        if row.get('main_id') and row.get('ra') is not None and row.get('dec') is not None:
-            if row['main_id'] not in found_ids:
-                found_ids.add(row['main_id'])
-                ra_h, ra_m, ra_s = _ra_to_hms(row['ra'])
-                dec_d, dec_m, dec_s = _dec_to_dms(row['dec'])
-                results.append(SimbadObject(
-                    main_id=row['main_id'],
-                    name=row['main_id'],
-                    ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
-                    dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
-                ))
+        mid = row.get('main_id')
+        ra = row.get('ra')
+        dec = row.get('dec')
+        if mid and ra is not None and dec is not None and mid not in found_ids:
+            found_ids.add(mid)
+            ra_h, ra_m, ra_s = _ra_to_hms(ra)
+            dec_d, dec_m, dec_s = _dec_to_dms(dec)
+            results.append(SimbadObject(
+                main_id=mid, name=mid,
+                ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
+                dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
+            ))
     
     # Search 2: Alternative identifiers
     if len(results) < 5:
         adql = f"""SELECT TOP {limit} b.main_id, b.ra, b.dec 
-                   FROM basic b 
-                   JOIN ident i ON b.oid = i.oidref 
+                   FROM basic b JOIN ident i ON b.oid = i.oidref 
                    WHERE i.id LIKE '%{safe_query}%'"""
         rows = _execute_tap_query(adql)
         for row in rows:
-            if row.get('main_id') and row.get('ra') is not None and row.get('dec') is not None:
-                if row['main_id'] not in found_ids:
-                    found_ids.add(row['main_id'])
-                    ra_h, ra_m, ra_s = _ra_to_hms(row['ra'])
-                    dec_d, dec_m, dec_s = _dec_to_dms(row['dec'])
-                    results.append(SimbadObject(
-                        main_id=row['main_id'],
-                        name=row['main_id'],
-                        ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
-                        dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
-                    ))
+            mid = row.get('main_id')
+            ra = row.get('ra')
+            dec = row.get('dec')
+            if mid and ra is not None and dec is not None and mid not in found_ids:
+                found_ids.add(mid)
+                ra_h, ra_m, ra_s = _ra_to_hms(ra)
+                dec_d, dec_m, dec_s = _dec_to_dms(dec)
+                results.append(SimbadObject(
+                    main_id=mid, name=mid,
+                    ra_hours=ra_h, ra_minutes=ra_m, ra_seconds=ra_s,
+                    dec_degrees=dec_d, dec_minutes=dec_m, dec_seconds=dec_s
+                ))
     
-    # Enrich results with astroquery details (magnitude, type, size)
-    if ASTROQUERY_AVAILABLE:
-        for obj in results:
-            details = _get_astroquery_details(obj.main_id)
-            obj.magnitude_v = details.get('magnitude_v')
-            obj.object_type = details.get('object_type', 'unknown')
-            obj.size_arcmin = details.get('size_arcmin')
-            obj.morphology = details.get('morphology')
+    # Note: Details (magnitude, type, size) fetched only when object is SELECTED
+    # This prevents spamming SIMBAD with 15+ queries per search
     
     return results[:limit]
 
@@ -232,10 +226,10 @@ def test_connection() -> bool:
 if __name__ == "__main__":
     print("Testing SIMBAD hybrid client...")
     if test_connection():
-        print(f"✓ Connected to SIMBAD (astroquery: {ASTROQUERY_AVAILABLE})")
+        print(f"✓ Connected (astroquery: {ASTROQUERY_AVAILABLE})")
         print("\nSearching M31:")
         for r in search_by_name("M31", limit=3):
-            print(f"  {r.main_id}: RA={r.ra_display}, Dec={r.dec_display}")
-            print(f"    Type: {r.object_type}, Mag V: {r.magnitude_v}")
+            print(f"  {r.main_id}: {r.ra_display} / {r.dec_display}")
+            # Note: magnitude/type only fetched on selection
     else:
         print("✗ Connection failed")

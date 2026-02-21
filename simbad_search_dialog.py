@@ -46,6 +46,13 @@ class SimbadSearchDialog(QDialog):
             self.query_input.setText(initial_query)
             self._do_search()
     
+    def closeEvent(self, event):
+        """Ensure thread is stopped before closing"""
+        if self.search_thread and self.search_thread.isRunning():
+            self.search_thread.quit()
+            self.search_thread.wait(1000)
+        event.accept()
+    
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
@@ -165,14 +172,17 @@ class SimbadSearchDialog(QDialog):
         obj = item.data(Qt.UserRole)
         
         if obj:
-            # Load additional details via astroquery
+            # Load additional details via astroquery for SELECTED object only
             try:
-                from simbad_client import _get_astroquery_details
-                details = _get_astroquery_details(obj.main_id)
-                obj.magnitude_v = details.get('magnitude_v')
-                obj.object_type = details.get('object_type', obj.object_type)
-                obj.size_arcmin = details.get('size_arcmin')
-                obj.morphology = details.get('morphology')
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    from simbad_client import _get_astroquery_details
+                    details = _get_astroquery_details(obj.main_id)
+                    obj.magnitude_v = details.get('magnitude_v')
+                    obj.object_type = details.get('object_type', obj.object_type)
+                    obj.size_arcmin = details.get('size_arcmin')
+                    obj.morphology = details.get('morphology')
             except:
                 pass
             
