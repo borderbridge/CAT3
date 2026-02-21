@@ -825,8 +825,9 @@ class ObjectEditorWidget(QWidget):
                 edit_type.setCurrentIndex(idx)
 
         # Set description from morphology if available
-        if obj.morphology and not self.te_description.toPlainText().strip():
-            self.te_description.setPlainText(f"Typ: {obj.morphology}")
+        morphology = getattr(obj, 'morphology', None)
+        if morphology and not self.te_description.toPlainText().strip():
+            self.te_description.setPlainText(f"Typ: {morphology}")
 
         # Show status
         if self.parent():

@@ -202,19 +202,10 @@ def get_object_details(main_id: str) -> Dict:
     safe_id = main_id.replace("'", "''")
     details = {'magnitude_v': None, 'size_arcmin': None, 'constellation': None, 'otype': None}
     
-    # Get magnitude V
-    adql = f"""SELECT flux FROM flux 
-               WHERE oidref=(SELECT oid FROM basic WHERE main_id='{safe_id}') 
-               AND filter='V' LIMIT 1"""
-    rows = _execute_query(adql)
-    if rows and rows[0].get('flux'):
-        try:
-            details['magnitude_v'] = float(rows[0]['flux'])
-        except:
-            pass
+    # Note: Flux query with JOIN doesn't work (HTTP 400), skipping magnitude for now
+    # TODO: Implement two-step query if needed (get oid, then flux)
     
     # Get size (major axis in degrees, convert to arcmin)
-    adql = f"""SELECT galdim_majaxis FROM basic WHERE main_id='{safe_id}'"""
     rows = _execute_query(adql)
     if rows and rows[0].get('galdim_majaxis'):
         try:
