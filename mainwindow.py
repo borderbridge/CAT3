@@ -987,7 +987,7 @@ class ObjectEditorWidget(QWidget):
         if pixmap.isNull():
             self.lbl_thumbnail.setText("❌\nUngültig")
             return
-        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
         self.lbl_thumbnail.setPixmap(scaled)
         self.lbl_thumbnail.setText("")
         
@@ -1256,7 +1256,7 @@ class ObjectEditorWidget(QWidget):
         self.thumbnail_strip.set_images(images, self.current_primary_image_id)
         
     def _display_main_image(self, path):
-        """Zeige Bild im Hauptbereich (400x380 max)"""
+        """Zeige Bild im Hauptbereich (400x400 vollflächig)"""
         if not path or not os.path.exists(path):
             self.lbl_thumbnail.setText("📷\nKein Bild")
             self.lbl_thumbnail.setPixmap(QPixmap())
@@ -1265,7 +1265,7 @@ class ObjectEditorWidget(QWidget):
         if pixmap.isNull():
             self.lbl_thumbnail.setText("❌\nUngültig")
             return
-        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
         self.lbl_thumbnail.setPixmap(scaled)
         self.lbl_thumbnail.setText("")
         
