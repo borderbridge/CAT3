@@ -575,7 +575,7 @@ class ObjectEditorWidget(QWidget):
         # Thumbnail-Strip für mehrere Bilder
         self.thumbnail_strip = ThumbnailStrip()
         self.thumbnail_strip.image_selected.connect(self._on_thumbnail_selected)
-        self.thumbnail_strip.image_set_primary.connect(self._on_set_primary_image)
+        self.thumbnail_strip.set_primary_requested.connect(self._on_set_primary_image)
         self.thumbnail_strip.image_deleted.connect(self._on_delete_image)
         self.thumbnail_strip.btn_add.clicked.connect(self._add_new_image)
         img_container.addWidget(self.thumbnail_strip)
