@@ -10,10 +10,11 @@ from PySide6.QtWidgets import (
     QWidget, QLabel, QGridLayout, QGroupBox, QTextEdit, QPushButton,
     QLineEdit, QComboBox, QFrame, QListWidget, QStackedWidget,
     QFileDialog, QSizePolicy, QScrollArea, QDialog, QDateEdit, QTimeEdit,
-    QTableWidget, QTableWidgetItem, QHeaderView
+    QTableWidget, QTableWidgetItem, QHeaderView, QGraphicsView, QGraphicsScene,
+    QGraphicsPixmapItem, QMenu
 )
-from PySide6.QtCore import Qt, Signal, QDate, QTime, QSize
-from PySide6.QtGui import QPixmap, QFont, QIcon, QPainter, QColor, QBrush
+from PySide6.QtCore import Qt, Signal, QDate, QTime, QSize, QPointF
+from PySide6.QtGui import QPixmap, QFont, QIcon, QPainter, QColor, QBrush, QWheelEvent, QMouseEvent
 
 from ui_CAT3_Mainwindow import Ui_MainWindow
 from simbad_search_dialog import SimbadButton
@@ -195,6 +196,301 @@ class ObservationDialog(QDialog):
             self.edit_data_path.setText(self.observation['data_path'])
 
 
+class ImageViewerDialog(QDialog):
+    """Vollbild-Bildbetrachter mit Zoom und Pan"""
+    def __init__(self, image_path, parent=None):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.setWindowTitle("Bildansicht")
+        self.setMinimumSize(800, 600)
+        self._zoom = 1.0
+        self._setup_ui()
+        self._load_image()
+        
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # GraphicsView für zoom/pan
+        self.graphics_view = QGraphicsView(self)
+        self.graphics_view.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+        self.graphics_view.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.graphics_view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.graphics_view.setResizeAnchor(QGraphicsView.AnchorViewCenter)
+        self.graphics_view.setBackgroundBrush(QBrush(QColor("#1a1a2e")))
+        layout.addWidget(self.graphics_view)
+        
+        # Scene
+        self.scene = QGraphicsScene(self)
+        self.graphics_view.setScene(self.scene)
+        
+        # Controls
+        controls = QHBoxLayout()
+        controls.setContentsMargins(10, 5, 10, 5)
+        
+        self.btn_zoom_out = QPushButton("−")
+        self.btn_zoom_out.setFixedSize(40, 30)
+        self.btn_zoom_out.clicked.connect(self._zoom_out)
+        controls.addWidget(self.btn_zoom_out)
+        
+        self.lbl_zoom = QLabel("100%")
+        self.lbl_zoom.setFixedWidth(60)
+        self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        controls.addWidget(self.lbl_zoom)
+        
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_zoom_in.setFixedSize(40, 30)
+        self.btn_zoom_in.clicked.connect(self._zoom_in)
+        controls.addWidget(self.btn_zoom_in)
+        
+        controls.addStretch()
+        
+        self.btn_reset = QPushButton("↺ Reset")
+        self.btn_reset.clicked.connect(self._reset_zoom)
+        controls.addWidget(self.btn_reset)
+        
+        self.btn_close = QPushButton("✕ Schließen")
+        self.btn_close.clicked.connect(self.accept)
+        controls.addWidget(self.btn_close)
+        
+        layout.addLayout(controls)
+        
+        # Style
+        self.setStyleSheet("""
+            QDialog { background-color: #1a1a2e; }
+            QPushButton { 
+                background-color: #0f3460; 
+                border: none; 
+                border-radius: 4px; 
+                padding: 8px 16px; 
+                color: #eaeaea; 
+            }
+            QPushButton:hover { background-color: #4fbdba; color: #1a1a2e; }
+            QLabel { color: #eaeaea; }
+            QGraphicsView { border: none; }
+        """)
+        
+    def _load_image(self):
+        if not self.image_path or not os.path.exists(self.image_path):
+            return
+        self.pixmap = QPixmap(self.image_path)
+        if self.pixmap.isNull():
+            return
+        self.pixmap_item = QGraphicsPixmapItem(self.pixmap)
+        self.pixmap_item.setTransformationMode(Qt.SmoothTransformation)
+        self.scene.clear()
+        self.scene.addItem(self.pixmap_item)
+        self._reset_zoom()
+        
+    def _reset_zoom(self):
+        self._zoom = 1.0
+        self.graphics_view.resetTransform()
+        rect = self.pixmap.rect() if hasattr(self, 'pixmap') else self.scene.itemsBoundingRect()
+        self.graphics_view.fitInView(rect, Qt.KeepAspectRatio)
+        self._update_zoom_label()
+        
+    def _zoom_in(self):
+        self._zoom *= 1.25
+        self.graphics_view.scale(1.25, 1.25)
+        self._update_zoom_label()
+        
+    def _zoom_out(self):
+        self._zoom *= 0.8
+        self.graphics_view.scale(0.8, 0.8)
+        self._update_zoom_label()
+        
+    def _update_zoom_label(self):
+        self.lbl_zoom.setText(f"{int(self._zoom * 100)}%")
+        
+    def wheelEvent(self, event: QWheelEvent):
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self._zoom_in()
+        else:
+            self._zoom_out()
+        event.accept()
+        
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape:
+            self.accept()
+        elif event.key() == Qt.Key_Plus or event.key() == Qt.Key_Equal:
+            self._zoom_in()
+        elif event.key() == Qt.Key_Minus:
+            self._zoom_out()
+        elif event.key() == Qt.Key_0:
+            self._reset_zoom()
+        else:
+            super().keyPressEvent(event)
+
+
+class ThumbnailStrip(QWidget):
+    """Horizontal scrollbarer Thumbnail-Strip für Bildergalerie"""
+    image_selected = Signal(int)  # image_id
+    image_set_primary = Signal(int)  # image_id
+    image_deleted = Signal(int)  # image_id
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(100)
+        self._images = []  # list of dicts
+        self._primary_image_id = None
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(8)
+        
+        # Scroll area
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setStyleSheet("background: transparent;")
+        
+        # Container for thumbnails
+        self.thumbs_container = QWidget()
+        self.thumbs_layout = QHBoxLayout(self.thumbs_container)
+        self.thumbs_layout.setContentsMargins(0, 0, 0, 0)
+        self.thumbs_layout.setSpacing(8)
+        self.thumbs_layout.addStretch()
+        
+        self.scroll_area.setWidget(self.thumbs_container)
+        layout.addWidget(self.scroll_area)
+        
+        # Add image button
+        self.btn_add = QPushButton("+")
+        self.btn_add.setFixedSize(40, 80)
+        self.btn_add.setStyleSheet("""
+            QPushButton {
+                background-color: #16213e;
+                border: 2px dashed #4fbdba;
+                border-radius: 8px;
+                color: #4fbdba;
+                font-size: 24px;
+            }
+            QPushButton:hover { background-color: #4fbdba; color: #1a1a2e; }
+        """)
+        self.btn_add.setToolTip("Bild hinzufügen")
+        layout.addWidget(self.btn_add)
+        
+        self.thumbnails = {}  # image_id -> QLabel
+        
+    def set_images(self, images, primary_image_id=None):
+        """
+        images: list of dicts with keys: id, file_path, is_primary
+        """
+        self._images = images
+        self._primary_image_id = primary_image_id
+        self._rebuild_thumbnails()
+        
+    def _rebuild_thumbnails(self):
+        # Clear existing
+        for i in reversed(range(self.thumbs_layout.count())):
+            item = self.thumbs_layout.itemAt(i)
+            if item.spacerItem():
+                continue
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self.thumbnails.clear()
+        self.thumbs_layout = QHBoxLayout(self.thumbs_container)
+        self.thumbs_layout.setContentsMargins(0, 0, 0, 0)
+        self.thumbs_layout.setSpacing(8)
+        
+        # Primary first, then others
+        sorted_images = sorted(self._images, key=lambda x: (0 if x['id'] == self._primary_image_id else 1, x['id']))
+        
+        for img in sorted_images:
+            thumb = self._create_thumbnail_widget(img)
+            self.thumbs_layout.addWidget(thumb)
+            self.thumbnails[img['id']] = thumb
+            
+        self.thumbs_layout.addStretch()
+        
+        # Show count if more images
+        if len(self._images) > 0:
+            count_label = QLabel(f"{len(self._images)} Bild(er)")
+            count_label.setStyleSheet("color: #888; font-size: 10px;")
+            count_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            self.thumbs_layout.addWidget(count_label)
+        
+    def _create_thumbnail_widget(self, img):
+        frame = QFrame()
+        frame.setFixedSize(80, 80)
+        frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        is_primary = (img['id'] == self._primary_image_id)
+        
+        # Style based on primary status
+        border_color = "#4fbdba" if is_primary else "#16213e"
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: #16213e;
+                border: 2px solid {border_color};
+                border-radius: 4px;
+            }}
+            QFrame:hover {{ border-color: #4fbdba; }}
+        """)
+        
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(2, 2, 2, 2)
+        
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setFixedSize(72, 72)
+        
+        # Load thumbnail
+        path = img.get('file_path', '')
+        if path and os.path.exists(path):
+            pixmap = QPixmap(path)
+            if not pixmap.isNull():
+                scaled = pixmap.scaled(72, 72, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                lbl.setPixmap(scaled)
+            else:
+                lbl.setText("❌")
+        else:
+            lbl.setText("❓")
+            
+        layout.addWidget(lbl)
+        
+        # Store image_id
+        frame.image_id = img['id']
+        frame.file_path = path
+        
+        # Click handler
+        frame.mousePressEvent = lambda e, fid=img['id']: self._on_thumbnail_click(fid, e)
+        
+        return frame
+        
+    def _on_thumbnail_click(self, image_id, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.image_selected.emit(image_id)
+        elif event.button() == Qt.MouseButton.RightButton:
+            self._show_context_menu(image_id)
+            
+    def _show_context_menu(self, image_id):
+        menu = QMenu(self)
+        
+        action_primary = menu.addAction("Als Hauptbild setzen")
+        action_view = menu.addAction("Bild ansehen")
+        menu.addSeparator()
+        action_delete = menu.addAction("Bild entfernen")
+        
+        action_primary.triggered.connect(lambda: self.image_set_primary.emit(image_id))
+        action_view.triggered.connect(lambda: self._view_image(image_id))
+        action_delete.triggered.connect(lambda: self.image_deleted.emit(image_id))
+        
+        menu.exec(self.mapToGlobal(self.thumbnails[image_id].pos()))
+        
+    def _view_image(self, image_id):
+        for img in self._images:
+            if img['id'] == image_id:
+                dialog = ImageViewerDialog(img.get('file_path'), self)
+                dialog.exec()
+                break
+
+
 class ObjectEditorWidget(QWidget):
     go_back = Signal()
     object_created = Signal(int)
@@ -206,6 +502,8 @@ class ObjectEditorWidget(QWidget):
         self.current_obj_id = None
         self.current_image_path = None
         self.current_directory = None
+        self.current_object_images = []  # alle bilder des objekts
+        self.current_primary_image_id = None
         self._setup_ui()
         self.set_mode(mode)
         self._apply_styles()
@@ -241,17 +539,24 @@ class ObjectEditorWidget(QWidget):
         top_section.setSpacing(16)
         
         img_container = QVBoxLayout()
+        img_container.setSpacing(8)
+        
+        # Hauptbild größer und klickbar für Vollbild
         self.thumbnail_frame = QFrame()
-        self.thumbnail_frame.setFixedSize(300, 300)
+        self.thumbnail_frame.setFixedSize(400, 400)
         self.thumbnail_frame.setStyleSheet("background-color: #16213e; border-radius: 8px;")
+        self.thumbnail_frame.setCursor(Qt.CursorShape.PointingHandCursor)
         thumb_layout = QVBoxLayout(self.thumbnail_frame)
-        thumb_layout.setContentsMargins(4, 4, 4, 4)
+        thumb_layout.setContentsMargins(8, 8, 8, 8)
         
         self.lbl_thumbnail = QLabel("📷\nKein Bild")
         self.lbl_thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_thumbnail.setStyleSheet("font-size: 48px; color: #4a4a6a; background: transparent;")
-        self.lbl_thumbnail.setMinimumSize(290, 260)
+        self.lbl_thumbnail.setMinimumSize(380, 350)
         thumb_layout.addWidget(self.lbl_thumbnail)
+        
+        # Doppelklick für Vollbild
+        self.thumbnail_frame.mouseDoubleClickEvent = self._on_main_image_doubleclick
         
         self.btn_change_image = QPushButton("🖼️ Bild auswählen...")
         self.btn_change_image.setVisible(False)
@@ -266,7 +571,15 @@ class ObjectEditorWidget(QWidget):
         thumb_layout.addWidget(self.lbl_image_path)
         
         img_container.addWidget(self.thumbnail_frame)
-        img_container.addStretch()
+        
+        # Thumbnail-Strip für mehrere Bilder
+        self.thumbnail_strip = ThumbnailStrip()
+        self.thumbnail_strip.image_selected.connect(self._on_thumbnail_selected)
+        self.thumbnail_strip.image_set_primary.connect(self._on_set_primary_image)
+        self.thumbnail_strip.image_deleted.connect(self._on_delete_image)
+        self.thumbnail_strip.btn_add.clicked.connect(self._add_new_image)
+        img_container.addWidget(self.thumbnail_strip)
+        
         top_section.addLayout(img_container)
         
         right_container = QVBoxLayout()
@@ -842,6 +1155,8 @@ class ObjectEditorWidget(QWidget):
         self.current_obj_id = None
         self.current_image_path = None
         self.current_directory = None
+        self.current_object_images = []
+        self.current_primary_image_id = None
         self.te_name.clear()
         self.te_description.clear()
         self.te_notes.clear()
@@ -852,6 +1167,8 @@ class ObjectEditorWidget(QWidget):
         self.lbl_directory.setText("Kein Verzeichnis gesetzt")
         self.edit_directory.clear()
         self.obs_table.setRowCount(0)
+        if hasattr(self, 'thumbnail_strip'):
+            self.thumbnail_strip.set_images([])
         for field in ["catalog", "type", "constellation", "magnitude", "ra", "dec", "size"]:
             lbl = self.findChild(QLabel, f"lbl_{field}")
             if lbl:
@@ -890,18 +1207,41 @@ class ObjectEditorWidget(QWidget):
             self.lbl_directory.setStyleSheet("color: #666; font-style: italic;")
         self.te_description.setPlainText(obj.get("description", ""))
         self.te_notes.setPlainText(obj.get("notes", ""))
-        self._load_object_image(obj.get("id"))
+        self._load_object_images(obj.get("id"))
         self._load_observations()
         
-    def _load_object_image(self, obj_id):
+    def _load_object_images(self, obj_id):
+        """Lade alle Bilder für das Objekt und zeige sie im Thumbnail-Strip"""
+        self.current_object_images = []
+        self.current_primary_image_id = None
+        
         if not obj_id:
+            self.lbl_thumbnail.setText("📷\nKein Bild")
+            self.lbl_thumbnail.setPixmap(QPixmap())
+            self.thumbnail_strip.set_images([])
             return
-        image = db.fetch_primary_image(obj_id)
-        if image:
-            path = image.get("file_path")
-            self.current_image_path = path
-            self._load_thumbnail(path)
-            self.lbl_image_path.setText(path)
+            
+        images = db.fetch_images_for_object(obj_id)
+        self.current_object_images = images
+        
+        # Finde primary image
+        primary_image = None
+        for img in images:
+            if img.get('is_primary'):
+                primary_image = img
+                self.current_primary_image_id = img['id']
+                break
+        
+        # Wenn kein primary, nimm das erste
+        if not primary_image and images:
+            primary_image = images[0]
+            self.current_primary_image_id = None  # Kein explizites primary
+            
+        # Zeige primary im Hauptbild
+        if primary_image:
+            self._display_main_image(primary_image.get('file_path'))
+            self.current_image_path = primary_image.get('file_path')
+            self.lbl_image_path.setText(primary_image.get('file_path', ''))
             self.lbl_image_path.setVisible(True)
         else:
             self.lbl_thumbnail.setText("📷\nKein Bild")
@@ -909,6 +1249,115 @@ class ObjectEditorWidget(QWidget):
             self.current_image_path = None
             self.lbl_image_path.clear()
             self.lbl_image_path.setVisible(False)
+            
+        # Update thumbnail strip
+        self.thumbnail_strip.set_images(images, self.current_primary_image_id)
+        
+    def _display_main_image(self, path):
+        """Zeige Bild im Hauptbereich (400x380 max)"""
+        if not path or not os.path.exists(path):
+            self.lbl_thumbnail.setText("📷\nKein Bild")
+            self.lbl_thumbnail.setPixmap(QPixmap())
+            return
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            self.lbl_thumbnail.setText("❌\nUngültig")
+            return
+        scaled = pixmap.scaled(380, 350, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.lbl_thumbnail.setPixmap(scaled)
+        self.lbl_thumbnail.setText("")
+        
+    def _on_main_image_doubleclick(self, event):
+        """Doppelklick auf Hauptbild öffnet Vollbildviewer"""
+        if self.current_image_path and os.path.exists(self.current_image_path):
+            dialog = ImageViewerDialog(self.current_image_path, self)
+            dialog.exec()
+        else:
+            # Im Edit-Mode: Bild auswählen
+            if self.mode in ("edit", "create"):
+                self._change_image()
+                
+    def _on_thumbnail_selected(self, image_id):
+        """Thumbnail wurde angeklickt - zeige im Hauptbereich"""
+        for img in self.current_object_images:
+            if img['id'] == image_id:
+                self._display_main_image(img.get('file_path'))
+                self.current_image_path = img.get('file_path')
+                self.lbl_image_path.setText(img.get('file_path', ''))
+                break
+                
+    def _on_set_primary_image(self, image_id):
+        """Setze Bild als Primary für dieses Objekt"""
+        if not self.current_obj_id:
+            return
+        try:
+            db.set_primary_image(self.current_obj_id, image_id)
+            self.current_primary_image_id = image_id
+            self.thumbnail_strip.set_images(self.current_object_images, image_id)
+            # Lade neu um sicherzustellen
+            self._load_object_images(self.current_obj_id)
+            if self.parent():
+                main_win = self.window()
+                if hasattr(main_win, 'statusBar'):
+                    main_win.statusBar().showMessage("✓ Hauptbild gesetzt", 2000)
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler", f"Konnte Hauptbild nicht setzen: {e}")
+            
+    def _on_delete_image(self, image_id):
+        """Entferne Bild aus Datenbank (nicht Datei löschen)"""
+        reply = QMessageBox.question(
+            self, 
+            "Bild entfernen", 
+            "Dieses Bild aus dem Katalog entfernen?\n(Die Datei wird nicht gelöscht)",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+            
+        try:
+            conn = db.get_conn()
+            with conn:
+                conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+            # Reload
+            self._load_object_images(self.current_obj_id)
+            if self.parent():
+                main_win = self.window()
+                if hasattr(main_win, 'statusBar'):
+                    main_win.statusBar().showMessage("✓ Bild entfernt", 2000)
+        except Exception as e:
+            QMessageBox.warning(self, "Fehler", f"Konnte Bild nicht entfernen: {e}")
+            
+    def _add_new_image(self):
+        """Füge neues Bild zum Objekt hinzu"""
+        if not self.current_obj_id:
+            QMessageBox.warning(self, "Fehler", "Speichere zuerst das Objekt.")
+            return
+            
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Bild hinzufügen", 
+            "", 
+            "Images (*.png *.jpg *.jpeg *.gif *.bmp *.tif *.tiff)"
+        )
+        if not file_path:
+            return
+            
+        try:
+            # Ist es das erste Bild? Dann als primary
+            is_primary = len(self.current_object_images) == 0
+            db.insert_image(
+                file_path=file_path,
+                object_id=self.current_obj_id,
+                is_primary=is_primary
+            )
+            self._load_object_images(self.current_obj_id)
+            if self.parent():
+                main_win = self.window()
+                if hasattr(main_win, 'statusBar'):
+                    main_win.statusBar().showMessage("✓ Bild hinzugefügt", 2000)
+        except Exception as e:
+            QMessageBox.critical(self, "Fehler", f"Konnte Bild nicht hinzufügen: {e}")
 
 
 class MainWindow(QMainWindow):
