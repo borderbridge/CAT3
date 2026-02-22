@@ -326,8 +326,10 @@ class ImageViewerDialog(QDialog):
 class ThumbnailStrip(QWidget):
     """Horizontal scrollbarer Thumbnail-Strip für Bildergalerie"""
     image_selected = Signal(int)  # image_id
-    image_set_primary = Signal(int)  # image_id
-    image_deleted = Signal(int)  # image_id
+    set_primary_requested = Signal(int)  # image_id
+    delete_image_requested = Signal(int)  # image_id
+    view_fullscreen_requested = Signal(int, str)  # image_id, image_path
+    add_image_requested = Signal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -477,17 +479,16 @@ class ThumbnailStrip(QWidget):
         menu.addSeparator()
         action_delete = menu.addAction("Bild entfernen")
         
-        action_primary.triggered.connect(lambda: self.image_set_primary.emit(image_id))
+        action_primary.triggered.connect(lambda: self.set_primary_requested.emit(image_id))
         action_view.triggered.connect(lambda: self._view_image(image_id))
-        action_delete.triggered.connect(lambda: self.image_deleted.emit(image_id))
+        action_delete.triggered.connect(lambda: self.delete_image_requested.emit(image_id))
         
         menu.exec(self.mapToGlobal(self.thumbnails[image_id].pos()))
         
     def _view_image(self, image_id):
         for img in self._images:
             if img['id'] == image_id:
-                dialog = ImageViewerDialog(img.get('file_path'), self)
-                dialog.exec()
+                self.view_fullscreen_requested.emit(image_id, img.get('file_path', ''))
                 break
 
 
@@ -576,8 +577,9 @@ class ObjectEditorWidget(QWidget):
         self.thumbnail_strip = ThumbnailStrip()
         self.thumbnail_strip.image_selected.connect(self._on_thumbnail_selected)
         self.thumbnail_strip.set_primary_requested.connect(self._on_set_primary_image)
-        self.thumbnail_strip.image_deleted.connect(self._on_delete_image)
-        self.thumbnail_strip.btn_add.clicked.connect(self._add_new_image)
+        self.thumbnail_strip.delete_image_requested.connect(self._on_delete_image)
+        self.thumbnail_strip.view_fullscreen_requested.connect(self._on_view_fullscreen)
+        self.thumbnail_strip.add_image_requested.connect(self._add_new_image)
         img_container.addWidget(self.thumbnail_strip)
         
         top_section.addLayout(img_container)
@@ -1327,6 +1329,14 @@ class ObjectEditorWidget(QWidget):
                     main_win.statusBar().showMessage("✓ Bild entfernt", 2000)
         except Exception as e:
             QMessageBox.warning(self, "Fehler", f"Konnte Bild nicht entfernen: {e}")
+            
+    def _on_view_fullscreen(self, image_id, image_path):
+        """Öffne Vollbild-Viewer für Bild"""
+        if image_path and os.path.exists(image_path):
+            dialog = ImageViewerDialog(image_path, self, self.current_obj_id, image_id)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, "Fehler", "Bild nicht gefunden.")
             
     def _add_new_image(self):
         """Füge neues Bild zum Objekt hinzu"""
