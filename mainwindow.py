@@ -548,12 +548,13 @@ class ObjectEditorWidget(QWidget):
         self.thumbnail_frame.setStyleSheet("background-color: #16213e; border-radius: 8px;")
         self.thumbnail_frame.setCursor(Qt.CursorShape.PointingHandCursor)
         thumb_layout = QVBoxLayout(self.thumbnail_frame)
-        thumb_layout.setContentsMargins(8, 8, 8, 8)
+        thumb_layout.setContentsMargins(0, 0, 0, 0)
         
         self.lbl_thumbnail = QLabel("📷\nKein Bild")
         self.lbl_thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_thumbnail.setStyleSheet("font-size: 48px; color: #4a4a6a; background: transparent;")
-        self.lbl_thumbnail.setMinimumSize(380, 350)
+        self.lbl_thumbnail.setScaledContents(True)
+        self.lbl_thumbnail.setMinimumSize(400, 400)
         thumb_layout.addWidget(self.lbl_thumbnail)
         
         # Doppelklick für Vollbild
@@ -987,7 +988,7 @@ class ObjectEditorWidget(QWidget):
         if pixmap.isNull():
             self.lbl_thumbnail.setText("❌\nUngültig")
             return
-        scaled = pixmap.scaled(290, 260, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.lbl_thumbnail.setPixmap(scaled)
         self.lbl_thumbnail.setText("")
         
@@ -1265,7 +1266,7 @@ class ObjectEditorWidget(QWidget):
         if pixmap.isNull():
             self.lbl_thumbnail.setText("❌\nUngültig")
             return
-        scaled = pixmap.scaled(380, 350, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled = pixmap.scaled(400, 400, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.lbl_thumbnail.setPixmap(scaled)
         self.lbl_thumbnail.setText("")
         
