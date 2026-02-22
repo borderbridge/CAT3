@@ -552,8 +552,7 @@ class ObjectEditorWidget(QWidget):
         
         self.lbl_thumbnail = QLabel("📷\nKein Bild")
         self.lbl_thumbnail.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_thumbnail.setStyleSheet("font-size: 48px; color: #4a4a6a; background: transparent;")
-        self.lbl_thumbnail.setScaledContents(True)
+        self.lbl_thumbnail.setStyleSheet("font-size: 48px; color: #4a4a6a; background-color: #16213e;")
         self.lbl_thumbnail.setMinimumSize(400, 400)
         thumb_layout.addWidget(self.lbl_thumbnail)
         
